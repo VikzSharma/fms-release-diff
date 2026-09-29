@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--new-version", required=True)
     ap.add_argument("--out", required=True, help="markdown report path")
     ap.add_argument("--full-diff-out", help="optional full unified diff path")
+    ap.add_argument("--summary-out", help="optional JSON summary path (for Slack notifications)")
     args = ap.parse_args()
 
     old_files = list_java_files(args.old)
@@ -214,6 +215,11 @@ def main():
         "security_modified": len(sec_modified),
         "report": args.out,
     }
+    if args.summary_out:
+        os.makedirs(os.path.dirname(args.summary_out), exist_ok=True)
+        with open(args.summary_out, "w") as f:
+            json.dump(summary, f, indent=2)
+
     print(json.dumps(summary, indent=2))
 
 

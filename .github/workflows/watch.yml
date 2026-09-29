@@ -2,7 +2,7 @@ name: watch-fms-releases
 
 on:
   schedule:
-    # daily at 06:00 UTC - only proceeds when a new release is detected
+    # daily at 06:00 UTC - posts a Slack update, only does full work on new releases
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
@@ -56,11 +56,11 @@ jobs:
           if [ -n "${{ inputs.manual_url }}" ]; then
             scripts/download_installer.sh "${{ inputs.manual_url }}" work
             echo "26.0.3" > work/feed_version.txt
-            if [ -f state/version.json ]; then jq -r .version state/version.json > work/prev_version.txt; fi
+            if [ -f state/version.json ]; then jq -r .build state/version.json > work/prev_version.txt; fi
           else
             scripts/download_installer.sh "${{ steps.check.outputs.version }}" work
             echo "${{ steps.check.outputs.version }}" > work/feed_version.txt
-            if [ -f state/version.json ]; then jq -r .version state/version.json > work/prev_version.txt; fi
+            if [ -f state/version.json ]; then jq -r .build state/version.json > work/prev_version.txt; fi
           fi
 
       - name: Extract jars and decompile
@@ -69,7 +69,6 @@ jobs:
           scripts/extract_jars.sh work/installer.zip work
           scripts/decompile.sh work/jars work/src
           NEW_FULL=$(cat work/version.txt)
-          echo "new_full=$NEW_FULL" >> "$GITHUB_OUTPUT"
           echo "$NEW_FULL" > work/new_full.txt
 
       - name: Generate diff report
@@ -77,16 +76,18 @@ jobs:
         run: |
           NEW_FULL=$(cat work/new_full.txt)
           if [ -d baseline/src ] && [ -f work/prev_version.txt ]; then
-            PREV_FULL=$(cat work/prev_version.txt)-baseline
+            PREV_FULL=$(cat work/prev_version.txt)
             python3 scripts/diff_report.py \
               --old baseline/src \
               --new work/src \
               --old-version "$PREV_FULL" \
               --new-version "$NEW_FULL" \
               --out "reports/${NEW_FULL}_report.md" \
-              --full-diff-out "reports/${NEW_FULL}_full.diff"
+              --full-diff-out "reports/${NEW_FULL}_full.diff" \
+              --summary-out "work/summary.json"
           else
             echo "*First release processed (${NEW_FULL}) - baseline created, no diff available.*" > "reports/${NEW_FULL}_report.md"
+            echo '{"new_version": "'"$NEW_FULL"'", "added": 0, "removed": 0, "modified": 0, "security_modified": 0}' > work/summary.json
           fi
 
       - name: Update baseline, state and commit
@@ -104,6 +105,37 @@ jobs:
           git add baseline reports state
           git commit -m "FileMaker Server ${NEW_FULL}: decompile, diff vs previous release" || echo "nothing to commit"
           git push
+
+      - name: Slack - new release alert
+        if: steps.decide.outputs.process == 'true'
+        run: |
+          WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
+          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          NEW_FULL=$(cat work/new_full.txt)
+          SUMMARY="first baseline"
+          if [ -f work/summary.json ]; then
+            SUMMARY=$(jq -r '"\(.added) files added, \(.removed) removed, \(.modified) modified (\(.security_modified) security-relevant)"' work/summary.json)
+          fi
+          REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          python3 scripts/slack_notify.py "$WEBHOOK" ":rotating_light: *New FileMaker Server release processed:* ${NEW_FULL}
+          ${SUMMARY}
+          Report: ${REPO_URL}/blob/main/reports/${NEW_FULL}_report.md"
+
+      - name: Slack - daily heartbeat (no new release)
+        if: steps.decide.outputs.process == 'false'
+        run: |
+          WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
+          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          LATEST=$(jq -r .build state/version.json)
+          python3 scripts/slack_notify.py "$WEBHOOK" ":large_green_circle: fms-release-diff daily check ($(date -u '+%Y-%m-%d %H:%M UTC')): no new FileMaker Server release. Latest processed: ${LATEST}"
+
+      - name: Slack - failure alert
+        if: failure()
+        run: |
+          WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
+          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          python3 scripts/slack_notify.py "$WEBHOOK" ":red_circle: fms-release-diff workflow *failed* - check the run logs: ${REPO_URL}/actions"
 
       - name: Cleanup workdir (keep repo small)
         if: steps.decide.outputs.process == 'true'

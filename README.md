@@ -44,6 +44,19 @@ reports/                       # generated release-diff reports
 - **New release with a non-standard link:** run the workflow with `manual_url`
   set to a fresh trial link (the pattern probe usually makes this unnecessary).
 
+## Slack notifications
+
+Every run posts to Slack:
+
+- 🟢 **Daily heartbeat** — no new release, latest processed version
+- 🚀 **New release alert** — version, change counts (added/removed/modified/
+  security-relevant), link to the full report
+- 🔴 **Failure alert** — if the workflow errors, link to the run logs
+
+The webhook URL lives in `config/slack_webhook.txt`. For better hygiene, add it
+as the `SLACK_WEBHOOK_URL` repository secret instead (Settings → Secrets and
+variables → Actions) — the secret takes precedence over the committed file.
+
 ## Generate a report locally
 
 ```bash
