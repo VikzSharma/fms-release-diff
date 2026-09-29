@@ -53,9 +53,9 @@ Every run posts to Slack:
   security-relevant), link to the full report
 - 🔴 **Failure alert** — if the workflow errors, link to the run logs
 
-The webhook URL lives in `config/slack_webhook.txt`. For better hygiene, add it
-as the `SLACK_WEBHOOK_URL` repository secret instead (Settings → Secrets and
-variables → Actions) — the secret takes precedence over the committed file.
+The webhook URL is stored as the `SLACK_WEBHOOK_URL` repository secret
+(Settings → Secrets and variables → Actions). If the secret is missing, the
+workflow logs a note and skips the Slack step without failing.
 
 ## Generate a report locally
 

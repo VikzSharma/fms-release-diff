@@ -110,7 +110,7 @@ jobs:
         if: steps.decide.outputs.process == 'true'
         run: |
           WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
-          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          if [ -z "$WEBHOOK" ]; then echo "SLACK_WEBHOOK_URL secret not set - skipping Slack notification"; exit 0; fi
           NEW_FULL=$(cat work/new_full.txt)
           SUMMARY="first baseline"
           if [ -f work/summary.json ]; then
@@ -125,7 +125,7 @@ jobs:
         if: steps.decide.outputs.process == 'false'
         run: |
           WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
-          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          if [ -z "$WEBHOOK" ]; then echo "SLACK_WEBHOOK_URL secret not set - skipping Slack notification"; exit 0; fi
           LATEST=$(jq -r .build state/version.json)
           python3 scripts/slack_notify.py "$WEBHOOK" ":large_green_circle: fms-release-diff daily check ($(date -u '+%Y-%m-%d %H:%M UTC')): no new FileMaker Server release. Latest processed: ${LATEST}"
 
@@ -133,7 +133,7 @@ jobs:
         if: failure()
         run: |
           WEBHOOK="${{ secrets.SLACK_WEBHOOK_URL }}"
-          [ -z "$WEBHOOK" ] && WEBHOOK=$(cat config/slack_webhook.txt)
+          if [ -z "$WEBHOOK" ]; then echo "SLACK_WEBHOOK_URL secret not set - skipping Slack notification"; exit 0; fi
           REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
           python3 scripts/slack_notify.py "$WEBHOOK" ":red_circle: fms-release-diff workflow *failed* - check the run logs: ${REPO_URL}/actions"
 
