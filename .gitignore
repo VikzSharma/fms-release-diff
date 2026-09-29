@@ -1,0 +1,7 @@
+work/
+*.zip
+*.deb
+*.war
+jars/cfr.jar
+hs_err_pid*.log
+.DS_Store

@@ -1,0 +1,110 @@
+name: watch-fms-releases
+
+on:
+  schedule:
+    # daily at 06:00 UTC - only proceeds when a new release is detected
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Re-process the current version even if not new (pipeline self-test)"
+        type: boolean
+        default: false
+      manual_url:
+        description: "Installer URL override (fresh trial link that does not follow the TBUB pattern)"
+        type: string
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fms-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Check for new FileMaker Server release
+        id: check
+        run: python3 scripts/check_version.py
+
+      - name: Decide whether to process
+        id: decide
+        run: |
+          PROCESS=false
+          if [ "${{ steps.check.outputs.new_release }}" = "true" ]; then PROCESS=true; fi
+          if [ "${{ inputs.force }}" = "true" ]; then PROCESS=true; fi
+          if [ -n "${{ inputs.manual_url }}" ]; then PROCESS=true; fi
+          echo "process=$PROCESS" >> "$GITHUB_OUTPUT"
+          if [ "$PROCESS" = "false" ]; then
+            echo "No new FileMaker Server release - nothing to do."
+          fi
+
+      - name: Download installer
+        if: steps.decide.outputs.process == 'true'
+        run: |
+          if [ -n "${{ inputs.manual_url }}" ]; then
+            scripts/download_installer.sh "${{ inputs.manual_url }}" work
+            echo "26.0.3" > work/feed_version.txt
+            if [ -f state/version.json ]; then jq -r .version state/version.json > work/prev_version.txt; fi
+          else
+            scripts/download_installer.sh "${{ steps.check.outputs.version }}" work
+            echo "${{ steps.check.outputs.version }}" > work/feed_version.txt
+            if [ -f state/version.json ]; then jq -r .version state/version.json > work/prev_version.txt; fi
+          fi
+
+      - name: Extract jars and decompile
+        if: steps.decide.outputs.process == 'true'
+        run: |
+          scripts/extract_jars.sh work/installer.zip work
+          scripts/decompile.sh work/jars work/src
+          NEW_FULL=$(cat work/version.txt)
+          echo "new_full=$NEW_FULL" >> "$GITHUB_OUTPUT"
+          echo "$NEW_FULL" > work/new_full.txt
+
+      - name: Generate diff report
+        if: steps.decide.outputs.process == 'true'
+        run: |
+          NEW_FULL=$(cat work/new_full.txt)
+          if [ -d baseline/src ] && [ -f work/prev_version.txt ]; then
+            PREV_FULL=$(cat work/prev_version.txt)-baseline
+            python3 scripts/diff_report.py \
+              --old baseline/src \
+              --new work/src \
+              --old-version "$PREV_FULL" \
+              --new-version "$NEW_FULL" \
+              --out "reports/${NEW_FULL}_report.md" \
+              --full-diff-out "reports/${NEW_FULL}_full.diff"
+          else
+            echo "*First release processed (${NEW_FULL}) - baseline created, no diff available.*" > "reports/${NEW_FULL}_report.md"
+          fi
+
+      - name: Update baseline, state and commit
+        if: steps.decide.outputs.process == 'true'
+        run: |
+          NEW_FULL=$(cat work/new_full.txt)
+          FEED_VER=$(cat work/feed_version.txt)
+          URL=$(cat work/installer.url 2>/dev/null || echo "manual")
+          rm -rf baseline/src
+          mkdir -p baseline
+          cp -r work/src baseline/src
+          python3 scripts/update_state.py "$NEW_FULL" "$FEED_VER" "$URL"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseline reports state
+          git commit -m "FileMaker Server ${NEW_FULL}: decompile, diff vs previous release" || echo "nothing to commit"
+          git push
+
+      - name: Cleanup workdir (keep repo small)
+        if: steps.decide.outputs.process == 'true'
+        run: rm -rf work

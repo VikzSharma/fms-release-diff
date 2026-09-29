@@ -1,0 +1,854 @@
+=== com/filemaker/jwpc/Constants.java ===
+--- a/com/filemaker/jwpc/Constants.java
++++ b/com/filemaker/jwpc/Constants.java
+@@ -93,6 +93,7 @@
+     public static final String HTTP_X_FORWARDED_PROTO = "X-Forwarded-Proto";
+     public static final String EXTENDED_PRIVILEGE_HEADER = "X-FMI-PE-ExtendedPrivilege";
+     public static final String XML_PRIV = "fmxml";
++    public static final String PHP_PRIV = "fmphp";
+     public static final String IWP_PRIV = "fmwebdirect";
+     public static final String JWPC_CONFIG_FILE = "jwpc_prefs.xml";
+     public static final String CONF = "conf";
+=== com/filemaker/jwpc/XMLCGIBase.java ===
+--- a/com/filemaker/jwpc/XMLCGIBase.java
++++ b/com/filemaker/jwpc/XMLCGIBase.java
+@@ -73,7 +73,6 @@
+      */
+     @Override
+     protected void processRequest(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) throws ServletException, IOException {
+-        boolean bl;
+         logger.debugEntering("processRequest");
+         LinkedHashMap<String, ArrayList<String>> linkedHashMap = null;
+         String string = this.getQueryString(httpServletRequest);
+@@ -118,13 +117,7 @@
+         String string5 = httpServletRequest.getPathInfo();
+         WPCResult wPCResult = null;
+         XMLDocument xMLDocument = null;
+-        String string6 = Utilities.getExtendedPrivilege(httpServletRequest);
+-        String string7 = null;
+-        if (string6 != null) {
+-            string7 = "fmphp";
+-        }
+-        boolean bl2 = bl = string7 != null;
+-        if (!this.isEnabled() && !bl) {
++        if (!this.isEnabled()) {
+             if (httpServletRequest.getRequestURL().toString().endsWith("dtd")) {
+                 httpServletResponse.sendError(403);
+             } else {
+@@ -169,22 +162,22 @@
+                 object = xMLCGIParser.parse();
+                 if (!((ConfigXMLRequest)object).hasError()) {
+                     this.storeAuthenticationInformation(httpServletRequest, (ConfigXMLRequest)object);
+-                    String string8 = new String(((ConfigXMLRequest)object).getUserAgent() + ((ConfigXMLRequest)object).getClientIP() + ((ConfigXMLRequest)object).getUserName() + ((ConfigXMLRequest)object).getPassword());
+-                    string8 = DigestUtils.md5Hex((byte[])string8.getBytes());
+-                    ((ConfigXMLRequest)object).setSessionHash(string8);
++                    String string6 = new String(((ConfigXMLRequest)object).getUserAgent() + ((ConfigXMLRequest)object).getClientIP() + ((ConfigXMLRequest)object).getUserName() + ((ConfigXMLRequest)object).getPassword());
++                    string6 = DigestUtils.md5Hex((byte[])string6.getBytes());
++                    ((ConfigXMLRequest)object).setSessionHash(string6);
+                     if (((ConfigXMLRequest)object).getRequestParam().getCmdCode() != CmdCode.DBNAMES.value()) {
+                         this.setSessionId(httpServletRequest, (ConfigXMLRequest)object);
+                     }
+-                    if (string6 == null) {
++                    if (Utilities.getExtendedPrivilege(httpServletRequest) != null) {
++                        ((ConfigXMLRequest)object).setPrivilegeExtension("fmphp");
++                    } else {
+                         ((ConfigXMLRequest)object).setPrivilegeExtension(this.getExtendedPrivilege());
+-                    } else if (string7 != null) {
+-                        ((ConfigXMLRequest)object).setPrivilegeExtension(string7);
+                     }
+                     try {
+                         if (((ConfigXMLRequest)object).getCmdCode() == CmdCode.CONTAINER.value()) {
+                             ServletContext servletContext = this.getServletContext();
+-                            String string9 = servletContext.getMimeType(((ConfigXMLRequest)object).getContainerFileName());
+-                            httpServletResponse.setContentType(string9);
++                            String string7 = servletContext.getMimeType(((ConfigXMLRequest)object).getContainerFileName());
++                            httpServletResponse.setContentType(string7);
+                             errorCode = XMLResponse.generateResponse((ConfigXMLRequest)object, ((ConfigXMLRequest)object).getResponseType(), httpServletResponse);
+                             if (!errorCode.ok() && !httpServletResponse.isCommitted()) {
+                                 if (errorCode.getErrorCode() == ErrorCode.CannotOpenFile.getErrorCode()) {
+@@ -211,8 +204,8 @@
+                     }
+                     catch (AuthenticationException authenticationException) {
+                         Object object2 = null;
+-                        String string10 = httpServletRequest.getParameter("-dbnames");
+-                        object2 = string10 != null ? "Basic realm=\"FileMaker\"" : "Basic realm=\"Database " + httpServletRequest.getParameter("-db") + "\"";
++                        String string8 = httpServletRequest.getParameter("-dbnames");
++                        object2 = string8 != null ? "Basic realm=\"FileMaker\"" : "Basic realm=\"Database " + httpServletRequest.getParameter("-db") + "\"";
+                         httpServletResponse.setHeader("WWW-Authenticate", (String)object2);
+                         httpServletResponse.sendError(401, "");
+                     }
+=== com/filemaker/jwpc/config/ConfigurationHandler.java ===
+--- a/com/filemaker/jwpc/config/ConfigurationHandler.java
++++ b/com/filemaker/jwpc/config/ConfigurationHandler.java
+@@ -38,7 +38,6 @@
+     private AtomicBoolean mIWPEnabled = new AtomicBoolean(false);
+     private AtomicReference<String> mIWPLanguage = new AtomicReference();
+     private AtomicReference<String> mCustomHomeurl = new AtomicReference();
+-    private AtomicBoolean mPHPEnabled = new AtomicBoolean(false);
+     private AtomicBoolean mHomeurlEnabled = new AtomicBoolean(false);
+     private AtomicReference<String> mServerId = new AtomicReference();
+     private AtomicInteger mChunksize = new AtomicInteger(10);
+@@ -83,13 +82,6 @@
+     public boolean isIWPEnabled() {
+         if (System.getProperty("fmEnableAll") == null) {
+             return this.mIWPEnabled.get();
+-        }
+-        return true;
+-    }
+-
+-    public boolean isPHPEnabled() {
+-        if (System.getProperty("fmEnableAll") == null) {
+-            return this.mPHPEnabled.get();
+         }
+         return true;
+     }
+@@ -213,27 +205,25 @@
+             this.mEnabled.set("yes".equalsIgnoreCase(string2));
+             String string3 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='iwpenabled']", this.mConfigDocument);
+             this.mIWPEnabled.set("yes".equalsIgnoreCase(string3));
+-            String string4 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='phpenabled']", this.mConfigDocument);
+-            this.mPHPEnabled.set("yes".equalsIgnoreCase(string4));
+             this.mIWPLanguage.set(this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='iwplanguage']", this.mConfigDocument));
+             this.mCustomHomeurl.set(this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='customhomeurl']", this.mConfigDocument));
+             this.mServerId.set(this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='serverid']", this.mConfigDocument));
+-            String string5 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='chunksize']", this.mConfigDocument);
++            String string4 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='chunksize']", this.mConfigDocument);
+             try {
+-                int n = Integer.parseInt(string5);
++                int n = Integer.parseInt(string4);
+                 this.mChunksize.set(n);
+             }
+             catch (Exception exception) {
+                 this.mChunksize.set(10);
+             }
+-            String string6 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='mwperouting']", this.mConfigDocument);
+-            this.mMWPERouting.set("yes".equalsIgnoreCase(string6));
+-            String string7 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='pulltorefreshenabled']", this.mConfigDocument);
+-            this.mPullToRefreshEnabled.set("yes".equalsIgnoreCase(string7));
+-            String string8 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='keystrokeenabled']", this.mConfigDocument);
+-            this.mKeystrokeEnabled.set("yes".equalsIgnoreCase(string8));
+-            String string9 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='ariaCompliantControlEnabled']", this.mConfigDocument);
+-            this.mAriaCompliantControlEnabled.set("yes".equalsIgnoreCase(string9));
++            String string5 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='mwperouting']", this.mConfigDocument);
++            this.mMWPERouting.set("yes".equalsIgnoreCase(string5));
++            String string6 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='pulltorefreshenabled']", this.mConfigDocument);
++            this.mPullToRefreshEnabled.set("yes".equalsIgnoreCase(string6));
++            String string7 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='keystrokeenabled']", this.mConfigDocument);
++            this.mKeystrokeEnabled.set("yes".equalsIgnoreCase(string7));
++            String string8 = this.getNodeTextValue(this.mXPath, "/jwpcconfig/settings/parameter[@name='ariaCompliantControlEnabled']", this.mConfigDocument);
++            this.mAriaCompliantControlEnabled.set("yes".equalsIgnoreCase(string8));
+         }
+     }
+ 
+=== com/filemaker/jwpc/iwp/application/App.java ===
+--- a/com/filemaker/jwpc/iwp/application/App.java
++++ b/com/filemaker/jwpc/iwp/application/App.java
+@@ -153,6 +153,8 @@
+ public class App
+ extends UI {
+     private static JWPCLogger logger = JWPCLogger.getLogger(App.class);
++    private static final Pattern HOMEURL_SCRIPT_PATTERN = Pattern.compile("javascript:.*", 2);
++    private static final Pattern HOMEURL_DOMAIN_PATTERN = Pattern.compile("^(?:http:\\/\\/|www\\.|https:\\/\\/)([^\\/]+)", 2);
+     private final List<Action.Handler> actionHandlers = new ArrayList<Action.Handler>();
+     private WeakReference<AppView> appView;
+     private String persistentID = "";
+@@ -314,20 +316,26 @@
+ 
+     public void setLogoutURL(String string, String string2) {
+         if (Utilities.isValidText(string)) {
+-            Pattern pattern = Pattern.compile("javascript:.*", 2);
+-            if (!pattern.matcher(string).matches() && AppServlet.isHomeurlEnabled()) {
+-                if (Utilities.isValidText(string2)) {
+-                    List<String> list = Arrays.asList(string2.split(","));
+-                    Pattern pattern2 = Pattern.compile("^(?:http:\\/\\/|www\\.|https:\\/\\/)([^\\/]+)", 2);
+-                    Matcher matcher = pattern2.matcher(string);
+-                    if (matcher.find() && list.contains(matcher.group())) {
+-                        this.userLogOutURL = string;
+-                    }
+-                }
+-            } else {
+-                this.userLogOutURL = null;
+-            }
+-        }
++            this.userLogOutURL = App.validateHomeurl(string, string2);
++        }
++    }
++
++    public static String validateHomeurl(String string, String string2) {
++        if (!Utilities.isValidText(string)) {
++            return null;
++        }
++        if (HOMEURL_SCRIPT_PATTERN.matcher(string).matches() || !AppServlet.isHomeurlEnabled()) {
++            return null;
++        }
++        if (!Utilities.isValidText(string2)) {
++            return null;
++        }
++        List<String> list = Arrays.asList(string2.split(","));
++        Matcher matcher = HOMEURL_DOMAIN_PATTERN.matcher(string);
++        if (matcher.find() && list.contains(matcher.group())) {
++            return string;
++        }
++        return null;
+     }
+ 
+     public String getLogoutURL() {
+=== com/filemaker/jwpc/iwp/application/FMRequestManager.java ===
+--- a/com/filemaker/jwpc/iwp/application/FMRequestManager.java
++++ b/com/filemaker/jwpc/iwp/application/FMRequestManager.java
+@@ -26,6 +26,7 @@
+ import com.filemaker.jwpc.config.ConfigurationHandler;
+ import com.filemaker.jwpc.fmwp.datatype.ErrorCode;
+ import com.filemaker.jwpc.iwp.application.App;
++import com.filemaker.jwpc.iwp.application.AppServlet;
+ import com.filemaker.jwpc.iwp.application.OAuthRequestHandler;
+ import com.filemaker.jwpc.iwp.application.SessionContext;
+ import com.filemaker.jwpc.iwp.notification.processor.BrowserInfoHandler;
+@@ -890,6 +891,7 @@
+                 if (Utilities.isValidText(string2) && Utilities.isValidText(string4)) {
+                     Object object;
+                     Object object2;
++                    Object object3;
+                     if (!this.isPost) {
+                         httpServletResponse.sendError(400);
+                         return true;
+@@ -902,18 +904,18 @@
+                     SessionContext sessionContext = null;
+                     if (bl) {
+                         boolean bl8 = FMRequestManager.getAllowCredentials(string2);
+-                        object2 = httpServletRequest.getParameter(PARAM_RELOGIN);
+-                        if (bl8 || "true".equalsIgnoreCase((String)object2)) {
+-                            object = this.getFMIDTokens(string4, string5);
+-                            string4 = object[0];
++                        object3 = httpServletRequest.getParameter(PARAM_RELOGIN);
++                        if (bl8 || "true".equalsIgnoreCase((String)object3)) {
++                            object2 = this.getFMIDTokens(string4, string5);
++                            string4 = object2[0];
+                             string5 = "";
+                             sessionContext = new SessionContext(sessionInfo, httpServletRequest.getLocale());
+                             if (!Utilities.isEmptyString(string4)) {
+                                 sessionContext.setFMID(string4);
+-                                sessionContext.setRefreshToken(object[1]);
++                                sessionContext.setRefreshToken(object2[1]);
+                                 this.setCanShare(sessionContext, string4, string2);
+                                 if (this.bReDirectToWA) {
+-                                    this.openWebAuthoring(string2, object[1], httpServletResponse);
++                                    this.openWebAuthoring(string2, object2[1], httpServletResponse);
+                                     this.setDirectToWA(false);
+                                     return true;
+                                 }
+@@ -933,31 +935,34 @@
+                         string5 = this.storedPwd;
+                     }
+                     Credentials credentials = new Credentials(string4, string5, string6, string7, bl4, bl5, bl3, bl, true, string2, "fmwebdirect");
+-                    object2 = new BrowserInfoHandler(httpServletRequest);
+-                    ((BrowserInfoHandler)object2).setPersistentID(App.getPersistentID(httpServletRequest, httpServletResponse));
+-                    object = Service.getInstance().openDatabase(sessionInfo.getSessionId(), credentials, bl6, ((BrowserInfoHandler)object2).getBrowserClientInfo(), null, false, false);
+-                    int n2 = object != null ? ((ContextResult)object).getError().getErrorCode() : -1;
++                    object3 = new BrowserInfoHandler(httpServletRequest);
++                    ((BrowserInfoHandler)object3).setPersistentID(App.getPersistentID(httpServletRequest, httpServletResponse));
++                    object2 = Service.getInstance().openDatabase(sessionInfo.getSessionId(), credentials, bl6, ((BrowserInfoHandler)object3).getBrowserClientInfo(), null, false, false);
++                    int n2 = object2 != null ? ((ContextResult)object2).getError().getErrorCode() : -1;
+                     n2 = n == -1 ? ErrorCode.URLConnectionAuthenticationFalied.getErrorCode() : n2;
+-                    Object object3 = IWPUtilities.getCaseInsensitiveURI(httpServletRequest.getRequestURI());
++                    Object object4 = IWPUtilities.getCaseInsensitiveURI(httpServletRequest.getRequestURI());
+                     if (n2 != 0 && n2 != 20801 && httpServletRequest.getParameter("homeurl") != null) {
+                         if (FMRequestManager.getFMIDInfo(httpServletRequest) && this.handleFMIDError(httpServletRequest, httpServletResponse, n2)) {
+                             return true;
+                         }
+-                        object3 = httpServletRequest.getParameter("homeurl");
+-                    }
+-                    Object object4 = "";
++                        object = App.validateHomeurl(httpServletRequest.getParameter("homeurl"), AppServlet.getCustomHomeurl());
++                        if (object != null) {
++                            object4 = object;
++                        }
++                    }
++                    object = "";
+                     String string9 = httpServletRequest.getQueryString();
+                     if (string9 != null) {
+                         try {
+-                            object3 = FMRequestManager.appendUrlQuery((String)object3, string9);
++                            object4 = FMRequestManager.appendUrlQuery((String)object4, string9);
+                         }
+                         catch (URISyntaxException uRISyntaxException) {
+                             uRISyntaxException.printStackTrace();
+-                            object3 = (String)object3 + "?" + string9;
++                            object4 = (String)object4 + "?" + string9;
+                         }
+                     }
+                     if (n2 == 0 || n2 == ErrorCode.PasswordExpired.getErrorCode()) {
+-                        session.updateContext(true, ((ContextResult)object).getContext());
++                        session.updateContext(true, ((ContextResult)object2).getContext());
+                         if (sessionContext != null) {
+                             sessionContext.setLocale(httpServletRequest.getLocale());
+                         } else {
+@@ -965,62 +970,62 @@
+                             sessionContext = new SessionContext(sessionInfo, httpServletRequest.getLocale());
+                             this.sessionContextMap.put(string8, sessionContext);
+                         }
+-                        object4 = String.format("%s=%s", PARAM_PID, string8);
++                        object = String.format("%s=%s", PARAM_PID, string8);
+                         if (n2 == ErrorCode.PasswordExpired.getErrorCode()) {
+-                            object4 = String.format("%s&%s=1", object4, PARAM_PWD_EXPIRED);
++                            object = String.format("%s&%s=1", object, PARAM_PWD_EXPIRED);
+                         }
+-                        object3 = FMRequestManager.removeQueryParameter((String)object3, "lgcnt");
++                        object4 = FMRequestManager.removeQueryParameter((String)object4, "lgcnt");
+                     } else if (bl3 && n2 == ErrorCode.URLConnectionAuthenticationFalied.getErrorCode()) {
+-                        object3 = FMRequestManager.removeQueryParameter((String)object3, PARAM_APPLEID);
++                        object4 = FMRequestManager.removeQueryParameter((String)object4, PARAM_APPLEID);
+                     } else {
+                         int n3;
+                         int n4 = n3 = httpServletRequest.getParameter("lgcnt") != null ? Integer.valueOf(httpServletRequest.getParameter("lgcnt")) : 0;
+                         if (n3 < 5 && httpServletRequest.getParameter(PARAM_APPLEID) == null || n3 < 2 && httpServletRequest.getParameter(PARAM_APPLEID) != null) {
+                             int n5;
+-                            int n6 = ((ContextResult)object).getContext().isGuestEnabled() ? 1 : 0;
+-                            int n7 = n5 = ((ContextResult)object).getContext().isHideLocalAccountEntry() ? 1 : 0;
++                            int n6 = ((ContextResult)object2).getContext().isGuestEnabled() ? 1 : 0;
++                            int n7 = n5 = ((ContextResult)object2).getContext().isHideLocalAccountEntry() ? 1 : 0;
+                             if (Utilities.isEmptyString(credentials.getUsername()) && Utilities.isEmptyString(credentials.getPassword())) {
+                                 n2 = 0;
+                             }
+-                            object4 = String.format("%s=%s&%s=%d&%s=%d&%s=%d", "db", FMRequestManager.encodeString(string2), LOGIN_ERROR_QUERY, n2, LOGIN_GUEST_ENABLED, n6, LOGIN_HIDELOCALACCOUNTENTRY, n5);
++                            object = String.format("%s=%s&%s=%d&%s=%d&%s=%d", "db", FMRequestManager.encodeString(string2), LOGIN_ERROR_QUERY, n2, LOGIN_GUEST_ENABLED, n6, LOGIN_HIDELOCALACCOUNTENTRY, n5);
+                             if (n2 == 20801) {
+-                                object4 = (String)object4 + "&appleid=1";
++                                object = (String)object + "&appleid=1";
+                                 this.storedUserName = string4;
+                                 this.storedPwd = string5;
+                                 this.sessionid = sessionInfo.getSessionId();
+                             } else if (n2 == 20802 || n2 == 20803 || n2 == 20804 || n2 == 20810) {
+                                 this.storedEmail = string6;
+-                                object3 = FMRequestManager.removeQueryParameter((String)object3, LOGIN_ERROR_QUERY);
+-                                object3 = FMRequestManager.removeQueryParameter((String)object3, PARAM_APPLEID);
+-                                object4 = (String)object4 + "&appleidpasscode=1";
++                                object4 = FMRequestManager.removeQueryParameter((String)object4, LOGIN_ERROR_QUERY);
++                                object4 = FMRequestManager.removeQueryParameter((String)object4, PARAM_APPLEID);
++                                object = (String)object + "&appleidpasscode=1";
+                             }
+-                            if (httpServletRequest.getParameter("homeurl") == null && ((String)object3).indexOf("lgcnt") == -1) {
+-                                object4 = (String)object4 + "&lgcnt=" + n3;
++                            if (httpServletRequest.getParameter("homeurl") == null && ((String)object4).indexOf("lgcnt") == -1) {
++                                object = (String)object + "&lgcnt=" + n3;
+                             }
+                         } else {
+-                            object3 = IWPUtilities.getCaseInsensitiveURI(httpServletRequest.getRequestURI());
+-                            int n8 = ((String)object3).indexOf(IWPUtilities.getDatabaseNameFromPath(string));
++                            object4 = IWPUtilities.getCaseInsensitiveURI(httpServletRequest.getRequestURI());
++                            int n8 = ((String)object4).indexOf(IWPUtilities.getDatabaseNameFromPath(string));
+                             if (n8 > -1) {
+-                                object3 = ((String)object3).substring(0, n8 - 1);
++                                object4 = ((String)object4).substring(0, n8 - 1);
+                                 try {
+-                                    object3 = FMRequestManager.appendUrlQuery((String)object3, "logout=-1");
++                                    object4 = FMRequestManager.appendUrlQuery((String)object4, "logout=-1");
+                                 }
+                                 catch (URISyntaxException uRISyntaxException) {
+                                     uRISyntaxException.printStackTrace();
+                                 }
+-                                httpServletResponse.sendRedirect(this.resolveRelativePath(httpServletRequest, (String)object3));
++                                httpServletResponse.sendRedirect(this.resolveRelativePath(httpServletRequest, (String)object4));
+                                 return true;
+                             }
+                         }
+                     }
+                     try {
+-                        object3 = FMRequestManager.appendUrlQuery((String)object3, (String)object4);
++                        object4 = FMRequestManager.appendUrlQuery((String)object4, (String)object);
+                     }
+                     catch (URISyntaxException uRISyntaxException) {
+                         uRISyntaxException.printStackTrace();
+-                        object3 = string9 != null ? (String)object3 + "&" + (String)object4 : (String)object3 + "?" + (String)object4;
+-                    }
+-                    httpServletResponse.sendRedirect(this.resolveRelativePath(httpServletRequest, (String)object3));
++                        object4 = string9 != null ? (String)object4 + "&" + (String)object : (String)object4 + "?" + (String)object;
++                    }
++                    httpServletResponse.sendRedirect(this.resolveRelativePath(httpServletRequest, (String)object4));
+                     return true;
+                 }
+             }
+=== com/filemaker/jwpc/iwp/notification/processor/NotificationDialogProcessor.java ===
+--- a/com/filemaker/jwpc/iwp/notification/processor/NotificationDialogProcessor.java
++++ b/com/filemaker/jwpc/iwp/notification/processor/NotificationDialogProcessor.java
+@@ -242,7 +242,10 @@
+                 break;
+             }
+             case IMPORT_FILE_DIALOG: {
+-                dialog = new InsertFileDialog(app, ((ImportRecordsDialogNotification)object).getImportFolderPath());
++                ImportRecordsDialogNotification importRecordsDialogNotification = (ImportRecordsDialogNotification)object;
++                int n = importRecordsDialogNotification.getDialogType();
++                String string = n == 1 ? IWPI18N.get(app, "OPEN_PDF", new Object[0]) : (n == 2 ? IWPI18N.get(app, "APPEND_PDF", new Object[0]) : IWPI18N.get(app, "INSERT", new Object[0]));
++                dialog = new InsertFileDialog(app, importRecordsDialogNotification.getImportFolderPath(), string);
+                 break;
+             }
+             case MESSAGE_DIALOG: {
+=== com/filemaker/jwpc/iwp/thrift/notification/ImportRecordsDialogNotification.java ===
+--- a/com/filemaker/jwpc/iwp/thrift/notification/ImportRecordsDialogNotification.java
++++ b/com/filemaker/jwpc/iwp/thrift/notification/ImportRecordsDialogNotification.java
+@@ -2,6 +2,7 @@
+  * Decompiled with CFR 0.152.
+  * 
+  * Could not load the following classes:
++ *  org.apache.thrift.EncodingUtils
+  *  org.apache.thrift.TBase
+  *  org.apache.thrift.TBaseHelper
+  *  org.apache.thrift.TException
+@@ -36,6 +37,7 @@
+ import java.util.EnumSet;
+ import java.util.HashMap;
+ import java.util.Map;
++import org.apache.thrift.EncodingUtils;
+ import org.apache.thrift.TBase;
+ import org.apache.thrift.TBaseHelper;
+ import org.apache.thrift.TException;
+@@ -63,24 +65,32 @@
+ Comparable<ImportRecordsDialogNotification> {
+     private static final TStruct STRUCT_DESC = new TStruct("ImportRecordsDialogNotification");
+     private static final TField IMPORT_FOLDER_PATH_FIELD_DESC = new TField("importFolderPath", 11, 1);
++    private static final TField DIALOG_TYPE_FIELD_DESC = new TField("dialogType", 8, 2);
+     private static final SchemeFactory STANDARD_SCHEME_FACTORY = new ImportRecordsDialogNotificationStandardSchemeFactory();
+     private static final SchemeFactory TUPLE_SCHEME_FACTORY = new ImportRecordsDialogNotificationTupleSchemeFactory();
+     @Nullable
+     private String importFolderPath;
++    private int dialogType;
++    private static final int __DIALOGTYPE_ISSET_ID = 0;
++    private byte __isset_bitfield = 0;
+     public static final Map<_Fields, FieldMetaData> metaDataMap;
+ 
+     public ImportRecordsDialogNotification() {
+     }
+ 
+-    public ImportRecordsDialogNotification(String string) {
++    public ImportRecordsDialogNotification(String string, int n) {
+         this();
+         this.importFolderPath = string;
++        this.dialogType = n;
++        this.setDialogTypeIsSet(true);
+     }
+ 
+     public ImportRecordsDialogNotification(ImportRecordsDialogNotification importRecordsDialogNotification) {
++        this.__isset_bitfield = importRecordsDialogNotification.__isset_bitfield;
+         if (importRecordsDialogNotification.isSetImportFolderPath()) {
+             this.importFolderPath = importRecordsDialogNotification.importFolderPath;
+         }
++        this.dialogType = importRecordsDialogNotification.dialogType;
+     }
+ 
+     public ImportRecordsDialogNotification deepCopy() {
+@@ -89,6 +99,8 @@
+ 
+     public void clear() {
+         this.importFolderPath = null;
++        this.setDialogTypeIsSet(false);
++        this.dialogType = 0;
+     }
+ 
+     @Nullable
+@@ -112,6 +124,27 @@
+         if (!bl) {
+             this.importFolderPath = null;
+         }
++    }
++
++    public int getDialogType() {
++        return this.dialogType;
++    }
++
++    public void setDialogType(int n) {
++        this.dialogType = n;
++        this.setDialogTypeIsSet(true);
++    }
++
++    public void unsetDialogType() {
++        this.__isset_bitfield = EncodingUtils.clearBit((byte)this.__isset_bitfield, (int)0);
++    }
++
++    public boolean isSetDialogType() {
++        return EncodingUtils.testBit((byte)this.__isset_bitfield, (int)0);
++    }
++
++    public void setDialogTypeIsSet(boolean bl) {
++        this.__isset_bitfield = EncodingUtils.setBit((byte)this.__isset_bitfield, (int)0, (boolean)bl);
+     }
+ 
+     public void setFieldValue(_Fields _Fields2, @Nullable Object object) {
+@@ -122,6 +155,14 @@
+                     break;
+                 }
+                 this.setImportFolderPath((String)object);
++                break;
++            }
++            case 1: {
++                if (object == null) {
++                    this.unsetDialogType();
++                    break;
++                }
++                this.setDialogType((Integer)object);
+             }
+         }
+     }
+@@ -132,6 +173,9 @@
+             case 0: {
+                 return this.getImportFolderPath();
+             }
++            case 1: {
++                return this.getDialogType();
++            }
+         }
+         throw new IllegalStateException();
+     }
+@@ -143,6 +187,9 @@
+         switch (_Fields2.ordinal()) {
+             case 0: {
+                 return this.isSetImportFolderPath();
++            }
++            case 1: {
++                return this.isSetDialogType();
+             }
+         }
+         throw new IllegalStateException();
+@@ -172,6 +219,16 @@
+                 return false;
+             }
+         }
++        boolean bl3 = true;
++        boolean bl4 = true;
++        if (bl3 || bl4) {
++            if (!bl3 || !bl4) {
++                return false;
++            }
++            if (this.dialogType != importRecordsDialogNotification.dialogType) {
++                return false;
++            }
++        }
+         return true;
+     }
+ 
+@@ -181,6 +238,7 @@
+         if (this.isSetImportFolderPath()) {
+             n = n * 8191 + this.importFolderPath.hashCode();
+         }
++        n = n * 8191 + this.dialogType;
+         return n;
+     }
+ 
+@@ -195,6 +253,13 @@
+             return n;
+         }
+         if (this.isSetImportFolderPath() && (n = TBaseHelper.compareTo((String)this.importFolderPath, (String)importRecordsDialogNotification.importFolderPath)) != 0) {
++            return n;
++        }
++        n = Boolean.compare(this.isSetDialogType(), importRecordsDialogNotification.isSetDialogType());
++        if (n != 0) {
++            return n;
++        }
++        if (this.isSetDialogType() && (n = TBaseHelper.compareTo((int)this.dialogType, (int)importRecordsDialogNotification.dialogType)) != 0) {
+             return n;
+         }
+         return 0;
+@@ -223,6 +288,12 @@
+             stringBuilder.append(this.importFolderPath);
+         }
+         bl = false;
++        if (!bl) {
++            stringBuilder.append(", ");
++        }
++        stringBuilder.append("dialogType:");
++        stringBuilder.append(this.dialogType);
++        bl = false;
+         stringBuilder.append(")");
+         return stringBuilder.toString();
+     }
+@@ -241,6 +312,7 @@
+ 
+     private void readObject(ObjectInputStream objectInputStream) throws IOException, ClassNotFoundException {
+         try {
++            this.__isset_bitfield = 0;
+             this.read((TProtocol)new TCompactProtocol((TTransport)new TIOStreamTransport((InputStream)objectInputStream)));
+         }
+         catch (TException tException) {
+@@ -255,13 +327,15 @@
+     static {
+         EnumMap<_Fields, FieldMetaData> enumMap = new EnumMap<_Fields, FieldMetaData>(_Fields.class);
+         enumMap.put(_Fields.IMPORT_FOLDER_PATH, new FieldMetaData("importFolderPath", 3, new FieldValueMetaData(11)));
++        enumMap.put(_Fields.DIALOG_TYPE, new FieldMetaData("dialogType", 3, new FieldValueMetaData(8)));
+         metaDataMap = Collections.unmodifiableMap(enumMap);
+         FieldMetaData.addStructMetaDataMap(ImportRecordsDialogNotification.class, metaDataMap);
+     }
+ 
+     public static enum _Fields implements TFieldIdEnum
+     {
+-        IMPORT_FOLDER_PATH(1, "importFolderPath");
++        IMPORT_FOLDER_PATH(1, "importFolderPath"),
++        DIALOG_TYPE(2, "dialogType");
+ 
+         private static final Map<String, _Fields> byName;
+         private final short _thriftId;
+@@ -273,6 +347,9 @@
+                 case 1: {
+                     return IMPORT_FOLDER_PATH;
+                 }
++                case 2: {
++                    return DIALOG_TYPE;
++                }
+             }
+             return null;
+         }
+@@ -342,18 +419,28 @@
+             if (importRecordsDialogNotification.isSetImportFolderPath()) {
+                 bitSet.set(0);
+             }
+-            tTupleProtocol.writeBitSet(bitSet, 1);
++            if (importRecordsDialogNotification.isSetDialogType()) {
++                bitSet.set(1);
++            }
++            tTupleProtocol.writeBitSet(bitSet, 2);
+             if (importRecordsDialogNotification.isSetImportFolderPath()) {
+                 tTupleProtocol.writeString(importRecordsDialogNotification.importFolderPath);
+             }
++            if (importRecordsDialogNotification.isSetDialogType()) {
++                tTupleProtocol.writeI32(importRecordsDialogNotification.dialogType);
++            }
+         }
+ 
+         public void read(TProtocol tProtocol, ImportRecordsDialogNotification importRecordsDialogNotification) throws TException {
+             TTupleProtocol tTupleProtocol = (TTupleProtocol)tProtocol;
+-            BitSet bitSet = tTupleProtocol.readBitSet(1);
++            BitSet bitSet = tTupleProtocol.readBitSet(2);
+             if (bitSet.get(0)) {
+                 importRecordsDialogNotification.importFolderPath = tTupleProtocol.readString();
+                 importRecordsDialogNotification.setImportFolderPathIsSet(true);
++            }
++            if (bitSet.get(1)) {
++                importRecordsDialogNotification.dialogType = tTupleProtocol.readI32();
++                importRecordsDialogNotification.setDialogTypeIsSet(true);
+             }
+         }
+     }
+@@ -378,6 +465,15 @@
+                         TProtocolUtil.skip((TProtocol)tProtocol, (byte)tField.type);
+                         break;
+                     }
++                    case 2: {
++                        if (tField.type == 8) {
++                            importRecordsDialogNotification.dialogType = tProtocol.readI32();
++                            importRecordsDialogNotification.setDialogTypeIsSet(true);
++                            break;
++                        }
++                        TProtocolUtil.skip((TProtocol)tProtocol, (byte)tField.type);
++                        break;
++                    }
+                     default: {
+                         TProtocolUtil.skip((TProtocol)tProtocol, (byte)tField.type);
+                     }
+@@ -396,6 +492,9 @@
+                 tProtocol.writeString(importRecordsDialogNotification.importFolderPath);
+                 tProtocol.writeFieldEnd();
+             }
++            tProtocol.writeFieldBegin(DIALOG_TYPE_FIELD_DESC);
++            tProtocol.writeI32(importRecordsDialogNotification.dialogType);
++            tProtocol.writeFieldEnd();
+             tProtocol.writeFieldStop();
+             tProtocol.writeStructEnd();
+         }
+=== com/filemaker/jwpc/iwp/ui/common/PDFDialog.java ===
+--- a/com/filemaker/jwpc/iwp/ui/common/PDFDialog.java
++++ b/com/filemaker/jwpc/iwp/ui/common/PDFDialog.java
+@@ -14,16 +14,17 @@
+  *  com.vaadin.v7.shared.ui.label.ContentMode
+  *  com.vaadin.v7.ui.HorizontalLayout
+  *  com.vaadin.v7.ui.Label
+- *  com.vaadin.v7.ui.NativeSelect
+  *  com.vaadin.v7.ui.VerticalLayout
+  */
+ package com.filemaker.jwpc.iwp.ui.common;
+ 
+ import com.filemaker.jwpc.iwp.application.App;
++import com.filemaker.jwpc.iwp.application.AppServlet;
+ import com.filemaker.jwpc.iwp.thrift.notification.SaveAsPDFNotification;
+ import com.filemaker.jwpc.iwp.ui.common.Dialog;
+ import com.filemaker.jwpc.iwp.ui.common.IntegerField;
+ import com.filemaker.jwpc.iwp.ui.common.ServerInvokedStaticDialog;
++import com.filemaker.jwpc.iwp.ui.statusarea.component.NativeSelect;
+ import com.vaadin.server.Sizeable;
+ import com.vaadin.ui.AbstractLayout;
+ import com.vaadin.ui.Button;
+@@ -33,7 +34,6 @@
+ import com.vaadin.v7.shared.ui.label.ContentMode;
+ import com.vaadin.v7.ui.HorizontalLayout;
+ import com.vaadin.v7.ui.Label;
+-import com.vaadin.v7.ui.NativeSelect;
+ import com.vaadin.v7.ui.VerticalLayout;
+ import java.util.HashMap;
+ import java.util.Map;
+@@ -45,9 +45,9 @@
+     private boolean viewPDF;
+     private SaveAsPDFResult result = null;
+     private IntegerField pagesFromField;
+-    private NativeSelect recordRangeSelect;
++    private NativeSelect<String> recordRangeSelect;
+     private Map<Integer, String> recordRangeList = null;
+-    private NativeSelect paperSizeSelect;
++    private NativeSelect<String> paperSizeSelect;
+     private Map<Integer, String> paperSizeList = null;
+     private Label paperSizeText = null;
+     private boolean landscapeMode = false;
+@@ -111,11 +111,11 @@
+             this.setOrientationMode(this.result.pageOrientation > 1);
+             this.customScaleField.setValue(String.valueOf((int)(this.result.scaling * 100.0)));
+             String string = this.paperSizeList.get(this.result.paperSize);
+-            this.paperSizeSelect.setValue((Object)string);
++            this.paperSizeSelect.setValue(string);
+         }
+         int n = this.result.docSaveType > 0 ? this.result.docSaveType : 1;
+         String string = this.recordRangeList.get(n);
+-        this.recordRangeSelect.setValue((Object)string);
++        this.recordRangeSelect.setValue(string);
+         this.recordRangeSelect.setEnabled(!this.printContainerPDF);
+     }
+ 
+@@ -171,11 +171,14 @@
+         this.recordRangeSelect.setImmediate(true);
+         this.recordRangeSelect.setCaption(this.app.getLocalizedString("RECORD_RANGE"));
+         this.recordRangeSelect.addStyleName(CAPTION_CSS_STYLE);
++        if (AppServlet.isAriaCompliantControlEnabled()) {
++            this.recordRangeSelect.setDescription(this.app.getLocalizedString("RECORD_RANGE"));
++        }
+         for (String string : this.recordRangeList.values()) {
+-            this.recordRangeSelect.addItem((Object)string);
++            this.recordRangeSelect.addItem(string);
+         }
+         this.recordRangeSelect.select(this.recordRangeList.values().toArray()[0]);
+-        verticalLayout.addComponent((Component)this.recordRangeSelect);
++        verticalLayout.addComponent(this.recordRangeSelect);
+         return verticalLayout;
+     }
+ 
+@@ -208,6 +211,9 @@
+         this.paperSizeSelect.setImmediate(true);
+         this.paperSizeSelect.setCaption(this.app.getLocalizedString("PAPER_SIZE"));
+         this.paperSizeSelect.addStyleName(CAPTION_CSS_STYLE);
++        if (AppServlet.isAriaCompliantControlEnabled()) {
++            this.paperSizeSelect.setDescription(this.app.getLocalizedString("PAPER_SIZE"));
++        }
+         this.paperSizeSelect.addValueChangeListener(new Property.ValueChangeListener(){
+ 
+             public void valueChange(Property.ValueChangeEvent valueChangeEvent) {
+@@ -215,9 +221,9 @@
+             }
+         });
+         for (String string : this.paperSizeList.values()) {
+-            this.paperSizeSelect.addItem((Object)string);
+-        }
+-        verticalLayout.addComponent((Component)this.paperSizeSelect);
++            this.paperSizeSelect.addItem(string);
++        }
++        verticalLayout.addComponent(this.paperSizeSelect);
+         return verticalLayout;
+     }
+ 
+=== com/filemaker/jwpc/iwp/ui/layout/component/container/InsertFileDialog.java ===
+--- a/com/filemaker/jwpc/iwp/ui/layout/component/container/InsertFileDialog.java
++++ b/com/filemaker/jwpc/iwp/ui/layout/component/container/InsertFileDialog.java
+@@ -26,8 +26,8 @@
+     private IWPFileUploadToServer upload;
+     private String folderPath;
+ 
+-    public InsertFileDialog(App app, String string) {
+-        super(app, IWPI18N.get(app, "INSERT", new Object[0]));
++    public InsertFileDialog(App app, String string, String string2) {
++        super(app, string2);
+         this.folderPath = string;
+         this.upload.setImportDir(string);
+     }
+=== com/filemaker/jwpc/iwp/widgetset/client/connector/NativeSelectConnector.java ===
+--- a/com/filemaker/jwpc/iwp/widgetset/client/connector/NativeSelectConnector.java
++++ b/com/filemaker/jwpc/iwp/widgetset/client/connector/NativeSelectConnector.java
+@@ -23,6 +23,11 @@
+         super.onStateChanged(stateChangeEvent);
+         if (FMCUtilities.useAriaCompliantControl() && (element = FMCUtilities.querySelector((Element)this.getWidget().getElement(), "select")) != null) {
+             element.setAttribute("aria-label", this.getState().description);
++            if (!element.hasAttribute("name")) {
++                String string = this.getState().caption;
++                String string2 = string != null && !string.isEmpty() ? string + "-" + this.getConnectorId() : this.getConnectorId();
++                element.setAttribute("name", string2);
++            }
+         }
+     }
+ }
+=== com/filemaker/jwpc/util/Utilities.java ===
+--- a/com/filemaker/jwpc/util/Utilities.java
++++ b/com/filemaker/jwpc/util/Utilities.java
+@@ -113,24 +113,20 @@
+         return httpServletRequest.getHeader("X-FMI-PE-ExtendedPrivilege");
+     }
+ 
+-    /*
+-     * Enabled force condition propagation
+-     * Lifted jumps to return sites
+-     */
+     public static String getModuleType(HttpServletRequest httpServletRequest) {
+         String[] stringArray;
+         String string = httpServletRequest.getRequestURI();
+-        if (string == null || string.length() <= 0 || (stringArray = string.split("/")) == null || stringArray.length < 3 || stringArray[2] == null) return "";
+-        String string2 = stringArray[2].toUpperCase();
+-        ModuleType moduleType = ModuleType.getType(string2);
+-        if (moduleType != null) {
+-            if (moduleType != ModuleType.XML || Utilities.getExtendedPrivilege(httpServletRequest) == null) return string2;
+-            string2 = ModuleType.PHP.value;
+-            return "";
+-        } else {
+-            if (!"VAADIN".equalsIgnoreCase(string2)) return "";
+-            return ModuleType.IWP.value;
+-        }
++        if (string != null && string.length() > 0 && (stringArray = string.split("/")) != null && stringArray.length >= 3 && stringArray[2] != null) {
++            String string2 = stringArray[2].toUpperCase();
++            ModuleType moduleType = ModuleType.getType(string2);
++            if (moduleType != null) {
++                return string2;
++            }
++            if ("VAADIN".equalsIgnoreCase(string2)) {
++                return ModuleType.IWP.value;
++            }
++        }
++        return "";
+     }
+ 
+     public static final String getLineBreak() {
+=== com/filemaker/jwpc/xml/response/FMPXMLLAYOUTDocument.java ===
+--- a/com/filemaker/jwpc/xml/response/FMPXMLLAYOUTDocument.java
++++ b/com/filemaker/jwpc/xml/response/FMPXMLLAYOUTDocument.java
+@@ -78,7 +78,7 @@
+     public void generateResponse() {
+         logger.debugEntering("generateResponse");
+         try {
+-            String string = "<!DOCTYPE FMPXMLLAYOUT PUBLIC \"-//FMI//DTD FMPXMLLAYOUT//EN\" \"" + this.resultSet.getProtocol() + "://" + this.resultSet.getHostNamePort() + "/fmi/xml/FMPXMLLAYOUT.dtd\">";
++            String string = "<!DOCTYPE FMPXMLLAYOUT PUBLIC \"-//FMI//DTD FMPXMLLAYOUT//EN\" \"/fmi/xml/FMPXMLLAYOUT.dtd\">";
+             this.writer.writeProcessingInstruction((CharSequence)"xml", (CharSequence)"version =\"1.0\" encoding=\"UTF-8\" standalone=\"no\"");
+             this.writer.writeDTD((CharSequence)string);
+             this.writer.writeStartElement((CharSequence)"FMPXMLLAYOUT");
+=== com/filemaker/jwpc/xml/response/FMPXMLRESULTDocument.java ===
+--- a/com/filemaker/jwpc/xml/response/FMPXMLRESULTDocument.java
++++ b/com/filemaker/jwpc/xml/response/FMPXMLRESULTDocument.java
+@@ -67,7 +67,7 @@
+     public void generateResponse() {
+         logger.debugEntering("generateResponse");
+         try {
+-            String string = "<!DOCTYPE FMPXMLRESULT PUBLIC \"-//FMI//DTD FMPXMLRESULT//EN\" \"" + this.resultSet.getProtocol() + "://" + this.resultSet.getHostNamePort() + "/fmi/xml/FMPXMLRESULT.dtd\">";
++            String string = "<!DOCTYPE FMPXMLRESULT PUBLIC \"-//FMI//DTD FMPXMLRESULT//EN\" \"/fmi/xml/FMPXMLRESULT.dtd\">";
+             this.writer.writeProcessingInstruction((CharSequence)"xml", (CharSequence)"version =\"1.0\" encoding=\"UTF-8\" standalone=\"no\"");
+             this.writer.writeDTD((CharSequence)string);
+             this.writer.writeStartElement((CharSequence)"FMPXMLRESULT");
+=== com/filemaker/jwpc/xml/response/FMResultSetDocument.java ===
+--- a/com/filemaker/jwpc/xml/response/FMResultSetDocument.java
++++ b/com/filemaker/jwpc/xml/response/FMResultSetDocument.java
+@@ -64,7 +64,7 @@
+     public void generateResponse() {
+         logger.debugEntering("generateResponse");
+         try {
+-            String string = "<!DOCTYPE fmresultset PUBLIC \"-//FMI//DTD fmresultset//EN\" \"" + this.resultSet.getProtocol() + "://" + this.resultSet.getHostNamePort() + "/fmi/xml/fmresultset.dtd\">";
++            String string = "<!DOCTYPE fmresultset PUBLIC \"-//FMI//DTD fmresultset//EN\" \"/fmi/xml/fmresultset.dtd\">";
+             this.writer.writeProcessingInstruction((CharSequence)"xml", (CharSequence)"version =\"1.0\" encoding=\"UTF-8\" standalone=\"no\"");
+             this.writer.writeDTD((CharSequence)string);
+             this.writer.writeStartElement((CharSequence)"fmresultset");

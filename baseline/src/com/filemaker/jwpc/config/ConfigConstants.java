@@ -1,0 +1,88 @@
+/*
+ * Decompiled with CFR 0.152.
+ */
+package com.filemaker.jwpc.config;
+
+public class ConfigConstants {
+    public static final String JWPC_CONFIG_FILE = "jwpc_prefs.xml";
+    public static final String XML_ENABLED_PARAM = "-xml_enabled";
+    public static final String PHP_ENABLED_PARAM = "-php_enabled";
+    public static final String IWP_ENABLED_PARAM = "-iwp_enabled";
+    public static final String GUID_PARAM = "-guid";
+    public static final String USERLOGENABLED_PARAM = "-userlog";
+    public static final String USERLOGLEVEL_PARAM = "-userloglevel";
+    public static final String USERLOGSIZE_PARAM = "-userlogsize";
+    public static final String DEBUGLOGENABLED_PARAM = "-debuglog";
+    public static final String CHUNKSIZE_PARAM = "-chunksize";
+    public static final String MAX_CWP_SESSIONS_PARAM = "-max_cwp_sessions";
+    public static final String IWP_LANGUAGE_PARAM = "-iwp_language";
+    public static final String MWPE_ROUTING_PARAM = "-mwperouting";
+    public static final String IWP_SESSION_TIMEOUT_PARAM = "-browser_session_timeout";
+    public static final String HOME_URL_ENABLED_PARAM = "-homeurl_enabled";
+    public static final String CUSTOM_HOME_URL_PARAM = "-customhomeurl";
+    public static final String ARIA_COMPLIANT_CONTROL_ENABLED_PARAM = "-aria_compliant_control_enabled";
+    public static final String JWPC_NAME = "JWPC";
+    public static final String CWPC_STATUS = "cwpc-error";
+    public static final String FMI_JWPC_CONFIG = "fmi-web-config";
+    public static final String VERSION = "version";
+    public static final String ERROR_NODE = "error";
+    public static final String PRODUCT_NODE = "product";
+    public static final String PARAMETERS = "parameters";
+    public static final String PARAMETER = "parameter";
+    public static final String NAME_ATTR = "name";
+    public static final String ERROR_CODE_ATTR = "code";
+    public static final String LEVEL_ATTR = "level";
+    public static final String SIZE_ATTR = "size";
+    public static final String DESCR_ATTR = "description";
+    public static final String CONF = "conf";
+    public static final String USER = "user";
+    public static final String DEBUG = "debug";
+    public static final String FMSADMIN = "fmsadmin";
+    public static final String ENABLED = "enabled";
+    public static final String CHUNKSIZE = "chunksize";
+    public static final String DRACO_IDENTIFIER = "draco-identifier";
+    public static final String DRACO_PASSPHRASE = "draco-passphrase";
+    public static final String PHP_ENABLED = "php-enabled";
+    public static final String IWP_ENABLED = "iwp-enabled";
+    public static final String IWP_LANGUAGE = "iwp-language";
+    public static final String MWPE_ROUTING = "mwperouting";
+    public static final String HOMEURL_ENABLED = "homeurl-enabled";
+    public static final String CUSTOM_HOME_URL = "customhomeurl";
+    public static final String ARIA_COMPLIANT_CONTROL_ENABLED = "aria-compliant-control-enabled";
+    public static final String LOGS = "logs";
+    public static final String LOG = "log";
+    public static final String XPATH_JWPC_ENABLED = "/jwpcconfig/settings/parameter[@name='enabled']";
+    public static final String XPATH_JWPC_SERVERID = "/jwpcconfig/settings/parameter[@name='serverid']";
+    public static final String XPATH_JWPC_CHUNKSIZE = "/jwpcconfig/settings/parameter[@name='chunksize']";
+    public static final String XPATH_JWPC_PHPENABLED = "/jwpcconfig/settings/parameter[@name='phpenabled']";
+    public static final String XPATH_JWPC_HOMEURLENABLED = "/jwpcconfig/settings/parameter[@name='homeurlenabled']";
+    public static final String XPATH_JWPC_CUSTOMHOMEURL = "/jwpcconfig/settings/parameter[@name='customhomeurl']";
+    public static final String XPATH_JWPC_IWPENABLED = "/jwpcconfig/settings/parameter[@name='iwpenabled']";
+    public static final String XPATH_JWPC_IWPLANGUAGE = "/jwpcconfig/settings/parameter[@name='iwplanguage']";
+    public static final String XPATH_JWPC_MWPEROUTING = "/jwpcconfig/settings/parameter[@name='mwperouting']";
+    public static final String XPATH_JWPC_USER_LOG_ENABLED = "/jwpcconfig/logs/log[@name='user']/@enabled";
+    public static final String XPATH_JWPC_USER_LOG_LEVEL = "/jwpcconfig/logs/log[@name='user']/@level";
+    public static final String XPATH_JWPC_USER_LOG_SIZE = "/jwpcconfig/logs/log[@name='user']/@size";
+    public static final String XPATH_JWPC_DEBUG_LOG_ENABLED = "/jwpcconfig/logs/log[@name='debug']/@enabled";
+    public static final String XPATH_JWPC_DEBUG_LOG_LEVEL = "/jwpcconfig/logs/log[@name='debug']/@level";
+    public static final String XPATH_JWPC_KEYSTROKEENABLED = "/jwpcconfig/settings/parameter[@name='keystrokeenabled']";
+    public static final String XPATH_JWPC_ARIACOMPLIANTCONTROL_ENABLED = "/jwpcconfig/settings/parameter[@name='ariaCompliantControlEnabled']";
+    public static final String YES = "yes";
+    public static final String NO = "no";
+    public static final String ON = "on";
+    public static final String OFF = "off";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
+    public static final String LOGLEVEL_TRACE = "trace";
+    public static final String LOGLEVEL_DEBUG = "debug";
+    public static final String LOGLEVEL_INFO = "info";
+    public static final String LOGLEVEL_WARN = "warn";
+    public static final String LOGLEVEL_ERROR = "error";
+    public static final String LOGLEVEL_FATAL = "fatal";
+    public static final int USERLOGENABLED = 1;
+    public static final int USERLOGLEVEL = 2;
+    public static final int USERLOGSIZE = 3;
+    public static final int DEBUGLOGENABLED = 4;
+    public static final int DEBUGLOGLEVEL = 5;
+}
+
